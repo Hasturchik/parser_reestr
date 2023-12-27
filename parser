@@ -1,0 +1,446 @@
+from bs4 import BeautifulSoup, element
+from selenium import webdriver
+import time
+import pandas as pd
+from selenium.common import TimeoutException, StaleElementReferenceException, NoSuchElementException, WebDriverException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import re
+import datetime
+import sqlite3
+import tkinter as tk
+
+# input_text = input('введите желаемое действие : (актуализация) или (поиск) или (очистка - пока не готово)\n')
+# if input_text == "актуализация":
+#     time.sleep(3)
+#     driver = webdriver.Firefox()
+#     now_page = "https://old.bankrot.fedresurs.ru/TradeList.aspx?attempt=0"
+#     driver.get(now_page)
+#     # driver.find_element('xpath', '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/table'
+#     #                              '/tbody/tr[2]/td/div/div/table/tbody/tr[3]/td[2]/select/option[3]').click() #параметры поиска
+#     # #НАДО ПРИДУМАТЬ, ЧТО СДЕЛАТЬ СО СТРАНИЦЕЙ 50
+#     # driver.find_element('xpath', '//*[@id="ctl00_cphBody_btnTradeSearch"]').click()
+try:
+    driver = webdriver.Firefox()
+    now_page = "https://old.bankrot.fedresurs.ru/TradeList.aspx?attempt=0"
+    driver.get(now_page)
+
+except WebDriverException:
+    pass
+
+
+i = 0
+list_with_page_value = []
+страницы_с_первой_по_11 = 2
+f = 3
+сколько_спарсили_номеров_торгов = 2
+текущий_элемент_в_клиенте = 0
+список_ключ_значений_торгов = []
+
+
+
+
+def получение_списка_с_парами_ключ_значение_по_странице( итератор_для_функции_получения_записей_с_торгов = 2):
+    while итератор_для_функции_получения_записей_с_торгов <= 21:
+        wait = WebDriverWait(driver, 10)
+        wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+        номер_торгов = driver.find_element('xpath', '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/table/tbody/tr[{}]/td[1]'.format(итератор_для_функции_получения_записей_с_торгов)).get_attribute('innerHTML')
+        номер_торгов = номер_торгов.strip(">\n\t")
+        дата_размещения_в_ефрсб = driver.find_element('xpath', '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/table/tbody/tr[{}]/td[3]'.format(итератор_для_функции_получения_записей_с_торгов)).text
+        # Дата_размещения_заявки_в_ЕФРСБ = driver.find_element('xpath', '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/table/tbody/tr[{}]/td[3]'.format(итератор_для_функции_получения_записей_с_торгов)).get_attribute('innerHTML')
+        # Дата_размещения_заявки_в_ЕФРСБ = Дата_размещения_заявки_в_ЕФРСБ.strip(">\n\t")
+        if итератор_для_функции_получения_записей_с_торгов < 10:
+            ссылка_на_клиента = driver.find_element('xpath','//*[@id="ctl00_cphBody_gvTradeList_ctl0{}_HyperLink1"]'.format(итератор_для_функции_получения_записей_с_торгов)).get_attribute('href')
+        elif итератор_для_функции_получения_записей_с_торгов >= 10:
+            ссылка_на_клиента = driver.find_element('xpath','//*[@id="ctl00_cphBody_gvTradeList_ctl{}_HyperLink1"]'.format(итератор_для_функции_получения_записей_с_торгов)).get_attribute('href')
+        список_ключ_значений_торгов.append(({'номер_торгов': номер_торгов,  'дата_размещения_в_ефрсб': дата_размещения_в_ефрсб, 'ссылка_на_клиента' : ссылка_на_клиента}))
+        итератор_для_функции_получения_записей_с_торгов += 1
+        # 'Дата_размещения_заявки_в_ЕФРСБ': Дата_размещения_заявки_в_ЕФРСБ,
+    return список_ключ_значений_торгов
+
+
+def ожидание_элемента(driver, locator):
+    wait = WebDriverWait(driver, 60)
+    # time.sleep(3.5)
+    элемент = wait.until(EC.presence_of_element_located(locator))
+    return элемент
+
+
+def надежный_поиск_элемента(driver, locator):
+    """Пытается найти элемент и возвращает его, если он не устарел (stale)."""
+    попытка = 0
+    while попытка < 3:  # Лимит попыток перехвата исключения
+        try:
+            элемент = WebDriverWait(driver, 10).until(EC.presence_of_element_located(locator))
+            # Делаем что-то с элементом, чтобы убедиться, что он не устарел
+            dummy = элемент.text
+            return элемент
+        except StaleElementReferenceException:
+            print("Элемент устарел, пытаемся найти еще раз")
+            попытка += 1
+            time.sleep(1)  # Ждем немного перед следующей попыткой
+    raise Exception("Не удалось найти стабильный элемент после нескольких попыток")
+
+
+def заход_в_карточку(итератор_заходов_в_карточку=0, итератор_для_проваливания_в_клиентов=2, счетчик_не_объявлений=2):
+    получение_списка_с_парами_ключ_значение_по_странице()
+    while итератор_для_проваливания_в_клиентов <= 21:
+                if итератор_для_проваливания_в_клиентов < 10:
+                    элемент = надежный_поиск_элемента(driver, (By.XPATH, '//*[@id="ctl00_cphBody_gvTradeList_ctl0{}_HyperLink1"]'.format(итератор_для_проваливания_в_клиентов)))
+                    элемент.click()
+                elif итератор_для_проваливания_в_клиентов >= 10:
+                    элемент = надежный_поиск_элемента(driver, (By.XPATH, '//*[@id="ctl00_cphBody_gvTradeList_ctl{}_HyperLink1"]'.format(итератор_для_проваливания_в_клиентов)))
+                    элемент.click()
+                current_window = driver.current_window_handle
+                счетчик_не_объявлений = 2
+                переключатель_страниц_в_клиенте = 2
+                регион = driver.find_element(By.XPATH, '//*[@id="ctl00_cphBody_lblRegion"]').text
+
+                элемент = надежный_поиск_элемента(driver, (By.XPATH,
+                                                     '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/div[2]/div[1]/div/div/table/tbody/tr[{}]/td[2]/a'.format(
+                                                         счетчик_не_объявлений)))
+                переключатель_страниц_в_клиенте = 2
+                try:
+                    while элемент.text not in ("Объявление о проведении торгов", "Объявление о проведении торгов (изменено)"):
+                        if счетчик_не_объявлений <= 20 and переключатель_страниц_в_клиенте < 9:
+                            счетчик_не_объявлений += 1
+                            try:
+                                элемент = надежный_поиск_элемента(driver, (By.XPATH,
+                                                                           '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/div[2]/div[1]/div/div/table/tbody/tr[{}]/td[2]/a'.format(
+                                                                               счетчик_не_объявлений)))
+                            except  WebDriverException as e:
+                                переключатель_страниц_в_клиенте = 9
+                                break
+                        elif счетчик_не_объявлений > 20 and переключатель_страниц_в_клиенте < 9:
+                            try:
+                                надежный_поиск_элемента(driver, (By.XPATH,
+                                                                 '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/div[2]/div[1]/div/div/table/tbody/tr[22]/td/table/tbody/tr/td[{}]/a'.format(
+                                                                     переключатель_страниц_в_клиенте))).click()
+                            except WebDriverException as e:
+                                break
+                            переключатель_страниц_в_клиенте += 1
+                            счетчик_не_объявлений = 2
+                            time.sleep(2)
+                            try:
+                                элемент = надежный_поиск_элемента(driver, (By.XPATH,
+                                                                           '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/div[2]/div[1]/div/div/table/tbody/tr[{}]/td[2]/a'.format(
+                                                                               счетчик_не_объявлений)))
+                            except WebDriverException as e:
+                                переключатель_страниц_в_клиенте = 9
+                                break
+                        elif переключатель_страниц_в_клиенте >= 9:
+                            break
+                except  WebDriverException as e:
+                    переключатель_страниц_в_клиенте = 9
+                    break
+
+                if переключатель_страниц_в_клиенте < 9:
+                    wait = WebDriverWait(driver, 10)
+                    wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+                    try:
+                        урл_клиента = driver.current_url
+                    except WebDriverException as e:
+                        time.sleep(3)
+                        урл_клиента = driver.current_url
+                    элемент.click()
+                    счетчик_не_объявлений = 2
+                    now_window = driver.window_handles
+                    driver.switch_to.window(now_window[-1])
+                    wait = WebDriverWait(driver, 10)
+                    wait.until(EC.presence_of_element_located((By.TAG_NAME, 'body')))
+                    wait.until(EC.visibility_of_element_located((By.TAG_NAME, 'body')))
+                    wait = WebDriverWait(driver, 10)
+                    wait.until(EC.presence_of_element_located((By.XPATH, "/html")))
+                    wait.until(EC.visibility_of_element_located((By.XPATH, "/html")))
+                    wait.until(EC.url_changes(урл_клиента))
+                    try:
+                        хтмл = driver.page_source
+                    except WebDriverException as e:
+                        time.sleep(9)
+                        хтмл = driver.page_source
+                    try:
+                        ссылка = driver.current_url
+                    except WebDriverException as e:
+                        time.sleep(9)
+                        ссылка = driver.current_url
+                    soup = BeautifulSoup(хтмл, "html.parser")
+                    текст_карточки = soup.get_text()
+                    # Исходный текст с элементами HTML и прочими спецсимволами
+
+                    # Удаляем HTML-элементы
+                    текст_карточки = re.sub('<[^<]+?>', '', текст_карточки)
+
+                    # Удаляем последовательности пробелов, табуляций и дополнительные переносы строк
+                    текст_карточки = re.sub('[\s\t\xa0]+', ' ', текст_карточки).strip()
+                    # Извлечение значения "Вид торгов"
+                    start = текст_карточки.find("Вид торгов") + len("Вид торгов")
+                    end = текст_карточки.find("Дата и время начала подачи заявок", start)
+                    открытые_ли_торги = текст_карточки[start:end].strip()
+                    if len(открытые_ли_торги)>40:
+                        start = текст_карточки.find("Вид торгов") + len("Вид торгов")
+                        end = текст_карточки.find("Требования к участникам", start)
+                        открытые_ли_торги = текст_карточки[start:end].strip()
+
+
+
+
+                    # Извлечение значения "Дата и время начала подачи заявок"
+                    start = текст_карточки.find("Дата и время начала подачи заявок") + len("Дата и время начала подачи заявок")
+                    end = текст_карточки.find("Дата и время окончания подачи заявок", start)
+                    дата_начала_подачи = текст_карточки[start:end].strip()
+
+
+                    # Извлечение значения "Дата и время окончания подачи заявок"
+                    start = текст_карточки.find("Дата и время окончания подачи заявок") + len("Дата и время окончания подачи заявок")
+                    end = текст_карточки.find("Правила подачи заявок", start)
+                    дата_окончания_подачи = текст_карточки[start:end].strip()
+                    if len(дата_окончания_подачи)>100:
+                        дата_окончания_подачи = ''
+
+                    start = текст_карточки.find("Дата и время торгов") + len(
+                        "Дата и время торгов")
+                    end = текст_карточки.find("Форма подачи предложения о цене", start)
+                    дата_торгов = текст_карточки[start:end].strip()
+                    if len(дата_окончания_подачи) > 50:
+                        дата_торгов = ''
+
+
+
+                    #извлечение описания
+                    старт = текст_карточки.find("Номер лотаОписаниеНачальная цена, рубШагЗадатокКлассификация имущества")
+                    конец = текст_карточки.find("Дополнительная информация:", старт)
+                    описание = текст_карточки[старт:конец].strip()
+                    if len(описание) < 10:
+                        старт = текст_карточки.find("Номер лотаОписаниеНачальная цена, рубШагЗадатокИнформация о снижении ценыКлассификация имущества")
+                        конец = текст_карточки.find("Дополнительная информация:", старт)
+                        описание = текст_карточки[старт:конец].strip()
+                        if len(описание) < 10:
+                            старт = текст_карточки.find("Номер лота1")
+                            конец = текст_карточки.find("Дополнительная информация:", старт)
+                            описание = текст_карточки[старт:конец].strip()
+
+
+                    список_ключ_значений_торгов[len(список_ключ_значений_торгов) - 20 + итератор_заходов_в_карточку]["описание"] = описание
+                    # # список_ключ_значений_торгов[итератор_заходов_в_карточку]["цена"] = цена
+                    список_ключ_значений_торгов[len(список_ключ_значений_торгов) - 20 + итератор_заходов_в_карточку]["ссылка"] = ссылка
+                    # # список_ключ_значений_торгов[итератор_заходов_в_карточку]["место_проведения"] = место_проведения
+                    список_ключ_значений_торгов[len(список_ключ_значений_торгов) - 20 + итератор_заходов_в_карточку]["дата_начала_подачи"] = дата_начала_подачи
+                    список_ключ_значений_торгов[len(список_ключ_значений_торгов) - 20 + итератор_заходов_в_карточку]["дата_окончания_подачи"] = дата_окончания_подачи
+                    список_ключ_значений_торгов[len(список_ключ_значений_торгов) - 20 + итератор_заходов_в_карточку]["открытые_ли_торги"] = открытые_ли_торги
+                    список_ключ_значений_торгов[len(список_ключ_значений_торгов) - 20 + итератор_заходов_в_карточку]["регион"] = регион
+                    список_ключ_значений_торгов[len(список_ключ_значений_торгов) - 20 + итератор_заходов_в_карточку]["дата_торгов"] = дата_торгов
+                    итератор_для_проваливания_в_клиентов += 1
+
+                    итератор_заходов_в_карточку += 1
+                    driver.switch_to.window(current_window)
+                    driver.back()
+                elif переключатель_страниц_в_клиенте >= 9:
+                    итератор_для_проваливания_в_клиентов += 1
+
+                    итератор_заходов_в_карточку += 1
+                    driver.switch_to.window(current_window)
+                    driver.back()
+    return список_ключ_значений_торгов
+
+def перебор_страниц(i = 0, переменная_для_перебора_цифр_страниц_с_1_по_11 = 2, переменная_для_перебора_цифр_страниц_с_11_по_50 = 3):
+    while i <= 49:   #48
+        if i <= 9:
+            заход_в_карточку()
+            string = '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/table/tbody/tr[22]/td/table/tbody/tr/td[{}]/a'.format(
+                переменная_для_перебора_цифр_страниц_с_1_по_11)
+            driver.find_element('xpath', string).click()
+            переменная_для_перебора_цифр_страниц_с_1_по_11 += 1
+            i += 1
+            time.sleep(5)
+
+        elif i > 9:
+            if переменная_для_перебора_цифр_страниц_с_11_по_50 <= 12:
+                заход_в_карточку()
+                string = '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/table/tbody/tr[22]/td/table/tbody/tr/td[{}]/a'.format(
+                    переменная_для_перебора_цифр_страниц_с_11_по_50)
+                driver.find_element('xpath', string).click()
+                переменная_для_перебора_цифр_страниц_с_11_по_50 += 1
+                i += 1
+                time.sleep(5)
+                if i == 49:
+                    заход_в_карточку()
+                    i += 1
+            elif i > 12:
+                переменная_для_перебора_цифр_страниц_с_11_по_50 = 3
+
+    return список_ключ_значений_торгов
+
+
+def актуализация_бд():
+    перебор_страниц()
+    conn = sqlite3.connect('mydatabase.db')
+    cursor = conn.cursor()
+
+    # Создание таблицы, если она не существует
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS торги (
+            дата_размещения_в_ефрсб TEXT,
+            описание TEXT,
+            регион TEXT,
+            ссылка_на_клиента TEXT,
+            открытые_ли_торги TEXT,
+            номер_торгов PRIMARY KEY,
+            дата_начала_подачи TEXT,
+            дата_окончания_подачи TEXT,
+            дата_торгов TEXT
+        )
+    ''')
+
+    for item in список_ключ_значений_торгов:
+        номер_торгов = item.get('номер_торгов')
+
+        # Проверка, существует ли элемент в базе данных
+        cursor.execute('SELECT * FROM торги WHERE номер_торгов = ?', (номер_торгов,))
+        existing_item = cursor.fetchone()
+
+        if existing_item:
+            print(f"Элемент {номер_торгов} уже существует в базе данных.")
+        else:
+            описание = item.get('описание')
+            if описание:
+                # Добавление элемента в базу данных
+                cursor.execute('''
+                    INSERT INTO торги (
+                        дата_размещения_в_ефрсб,
+                        описание,
+                        регион,
+                        ссылка_на_клиента,
+                        открытые_ли_торги,
+                        номер_торгов,
+                        дата_начала_подачи,
+                        дата_окончания_подачи,
+                        дата_торгов
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    item.get('дата_размещения_в_ефрсб'),
+                    описание,
+                    item.get('регион'),
+                    item.get('ссылка_на_клиента'),
+                    item.get('открытые_ли_торги'),
+                    item.get('номер_торгов'),
+                    item.get('дата_начала_подачи'),
+                    item.get('дата_окончания_подачи'),
+                    item.get('дата_торгов')
+                ))
+
+                print(f"Элемент {номер_торгов} добавлен в базу данных.")
+            else:
+                print(f"Элемент {номер_торгов} не добавлен в базу данных из-за отсутствия описания.")
+
+    # Сохранение изменений и закрытие соединения с базой данных
+    conn.commit()
+    conn.close()
+
+
+def поиск_по_бд(search_word):
+    conn = sqlite3.connect('mydatabase.db')
+    cursor = conn.cursor()
+
+    # Выполняем запрос для поиска вхождений
+    query = "SELECT * FROM торги WHERE описание LIKE '%' || ? || '%'"
+    cursor.execute(query, (search_word,))
+
+    # Получаем результаты запроса
+    results = cursor.fetchall()
+    df = pd.DataFrame(results, columns=[desc[0] for desc in cursor.description])
+    current_date = datetime.datetime.now().strftime("%d.%m.%y.%H.%M.%S")
+    # Сохраняем DataFrame в файл Excel
+    excel_file = f'output{current_date}.xlsx'
+    df.to_excel(excel_file, index=False)
+    print("Excel-таблица сохранена в файл:", excel_file)
+
+    # Выводим результаты
+    # for row in results:
+    #     print(row)
+
+    conn.close()
+    print('Поиск завершен. Результаты загружены в output.xlsx')
+    time.sleep(5)
+
+
+def поиск_по_маске_в_бд(search_word):
+        conn = sqlite3.connect('mydatabase.db')  # Подключение к базе данных
+        cursor = conn.cursor()
+
+        # Выполняем SQL-запрос для поиска текста в поле "описание"
+        cursor.execute("SELECT * FROM торги WHERE описание LIKE ?", ('%{}%'.format(search_word),))
+
+        results = cursor.fetchall()  # Получаем все результаты
+
+        df = pd.DataFrame(results, columns=[desc[0] for desc in cursor.description])
+        current_date = datetime.datetime.now().strftime("%d.%m.%y.%H.%M.%S")
+        # Сохраняем DataFrame в файл Excel
+        excel_file = f'output{current_date}.xlsx'
+        df.to_excel(excel_file, index=False)
+        print("Excel-таблица сохранена в файл:", excel_file)
+
+        # Выводим результаты
+        # for row in results:
+        #     print(row)
+
+        conn.close()
+        print('Поиск завершен. Результаты загружены в output.xlsx')
+        time.sleep(5)
+
+
+def очистка_бд():
+    # Подключение к базе данных
+    conn = sqlite3.connect('mydatabase.db')
+    cursor = conn.cursor()
+    # Получение количества записей в таблице
+    cursor.execute('''SELECT COUNT(*) FROM торги''')
+    count = cursor.fetchone()[0]
+
+    # Удаление старых значений, если количество записей превышает 100000
+    if count >= 120000:
+        delete_count = count - 120000
+        cursor.execute(
+            f'''DELETE FROM торги WHERE id IN (SELECT id FROM торги ORDER BY id ASC LIMIT {delete_count})''')
+        conn.commit()
+        print(f'{delete_count} старых записей удалены')
+    else:
+        print('пока не набралось больше 120 000')
+
+    # Закрытие соединения с базой данных
+    conn.close()
+
+
+def вызов_поиска():
+    search_word = ввод_поиска.get()
+    поиск_по_бд(search_word)
+
+def вызов_поиска_по_маске():
+    search_word = ввод_поиска_по_маске.get()
+    поиск_по_маске_в_бд(search_word)
+
+# Создание окна
+окно = tk.Tk()
+
+# Создание кнопок
+кнопка_актуализации = tk.Button(окно, text="Актуализация", command=актуализация_бд)
+кнопка_очистки = tk.Button(окно, text="Очистка", command=очистка_бд)
+кнопка_поиска = tk.Button(окно, text="Поиск", command=вызов_поиска)
+кнопка_поиска_по_маске = tk.Button(окно, text="Поиск по маске", command=вызов_поиска_по_маске)
+
+
+# Создание поля для ввода текста
+ввод_поиска = tk.Entry(окно)
+ввод_поиска_по_маске = tk.Entry(окно)
+
+# Размещение кнопок и полей в окне
+кнопка_актуализации.pack()
+кнопка_очистки.pack()
+ввод_поиска.pack()
+кнопка_поиска.pack()
+ввод_поиска_по_маске.pack()
+кнопка_поиска_по_маске.pack()
+
+# Запуск главного цикла окна
+окно.mainloop()
