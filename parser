@@ -87,11 +87,15 @@ def заход_в_карточку(итератор_для_проваливан�
             ссылка_на_клиента = driver.find_element('xpath','//*[@id="ctl00_cphBody_gvTradeList_ctl0{}_HyperLink1"]'.format(итератор_для_проваливания_в_клиентов)).get_attribute('href') #тут он заходит с торгов в должника
             элемент = надежный_поиск_элемента(driver, (By.XPATH, '//*[@id="ctl00_cphBody_gvTradeList_ctl0{}_HyperLink1"]'.format(итератор_для_проваливания_в_клиентов)))
             элемент.click()
+            while driver.current_url == 'about:blank':
+                time.sleep(0.1)
         elif итератор_для_проваливания_в_клиентов >= 10:
             ожидание(driver)
             ссылка_на_клиента = driver.find_element('xpath','//*[@id="ctl00_cphBody_gvTradeList_ctl{}_HyperLink1"]'.format(итератор_для_проваливания_в_клиентов)).get_attribute('href') #тут он заходит с торгов в должника
             элемент = надежный_поиск_элемента(driver, (By.XPATH, '//*[@id="ctl00_cphBody_gvTradeList_ctl{}_HyperLink1"]'.format(итератор_для_проваливания_в_клиентов)))
             элемент.click()
+            while driver.current_url == 'about:blank':
+                time.sleep(0.1)
         итератор_записей_в_должнике = 2
         итератор_страниц_в_должнике = 2
 
@@ -118,6 +122,7 @@ def заход_в_карточку(итератор_для_проваливан�
             результат = re.search(r'Всего: (\d+)', количество_элементов)
             количество_элементов = int(результат.group(1))
             счетчик_пройденных_элементов = 1
+            ссылка = None
             старая_дата = None
             while итератор_страниц_в_должнике < 3 and счетчик_пройденных_элементов < количество_элементов and счетчик_пройденных_элементов<=40:
                     ожидание(driver)
@@ -175,6 +180,8 @@ def заход_в_карточку(итератор_для_проваливан�
                             print('сейчас страница изменится')
 
                             reliable_element_search = надежный_поиск_элемента(driver, (By.XPATH,'/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/div[2]/div[1]/div/div/table/tbody/tr[22]/td/table/tbody/tr/td[{}]/a'.format(итератор_страниц_в_должнике))).click()
+                            while driver.current_url == 'about:blank':
+                                time.sleep(0.1)
                             wait_for_page_source_to_change(driver, old_page_source)
                             итератор_записей_в_должнике = 2
                             ожидание(driver)
@@ -201,13 +208,19 @@ def заход_в_карточку(итератор_для_проваливан�
                         wait.until(EC.visibility_of_element_located((By.XPATH, full_xpath)))
                         # print('/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/div[2]/div[1]/div/div/table/tbody/tr[{}]/td[1]'.format(итератор_записей_в_должнике))
                         print('сработал')
+                        #дописать прогрузку
                         элемент.click()
+                        while driver.current_url == 'about:blank':
+                            time.sleep(0.1)
                         ожидание(driver)
                         now_window = driver.window_handles
                         driver.switch_to.window(now_window[-1])
+                        while ссылка == driver.current_url or driver.current_url == 'about:blank':
+                            time.sleep(0.1)
                         ожидание(driver)
                         урл_страницы_карточки_торгов = driver.page_source
                         ссылка = driver.current_url
+                        print(ссылка)
                         soup = BeautifulSoup(урл_страницы_карточки_торгов, "html.parser")
                         текст_карточки = soup.get_text()
                         # Удаляем HTML-элементы
@@ -271,7 +284,9 @@ def заход_в_карточку(итератор_для_проваливан�
                                                              'ссылка_на_клиента': ссылка_на_клиента,
                                                              'дата_размещения_в_ефрсб': дата_размещения_в_ефрсб,
                                                              'номер_торгов': номер_торгов, }))
+                        driver.close()
                         driver.switch_to.window(current_window)
+                        print(описание)
                         ожидание(driver)
                         xpath_template = ('/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/div[2]/div[1]/div/div/table/tbody/tr[2]/td[2]/a')
                         старая_дата = driver.find_element(By.XPATH, '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/div[2]/div[1]/div/div/table/tbody/tr[{}]/td[1]'.format(итератор_записей_в_должнике))
@@ -294,15 +309,19 @@ def заход_в_карточку(итератор_для_проваливан�
     return список_ключ_значений_торгов
 
 def перебор_страниц(i = 0, переменная_для_перебора_цифр_страниц_с_1_по_11 = 2, переменная_для_перебора_цифр_страниц_с_11_по_50 = 3):
-    while i <= 1:   #49
+    while i <= 49:   #49
         if i <= 9:
             заход_в_карточку()
             string = '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/table/tbody/tr[22]/td/table/tbody/tr/td[{}]/a'.format(
                 переменная_для_перебора_цифр_страниц_с_1_по_11)
             driver.find_element('xpath', string).click()
+            while driver.current_url == 'about:blank':
+                time.sleep(0.1)
             ожидание(driver)
             переменная_для_перебора_цифр_страниц_с_1_по_11 += 1
             i += 1
+            while driver.current_url == 'about:blank':
+                time.sleep(0.1)
             time.sleep(5)
 
         elif i > 9:
@@ -311,6 +330,8 @@ def перебор_страниц(i = 0, переменная_для_переб�
                 string = '/html/body/form/table/tbody/tr[2]/td/div/table[2]/tbody/tr[2]/td/table/tbody/tr/td[2]/div/div/table/tbody/tr[22]/td/table/tbody/tr/td[{}]/a'.format(
                     переменная_для_перебора_цифр_страниц_с_11_по_50)
                 driver.find_element('xpath', string).click()
+                while driver.current_url == 'about:blank':
+                    time.sleep(0.1)
                 ожидание(driver)
                 переменная_для_перебора_цифр_страниц_с_11_по_50 += 1
                 i += 1
@@ -406,7 +427,7 @@ def поиск_по_бд(search_word):
     # Получаем результаты запроса
     results = cursor.fetchall()
     df = pd.DataFrame(results, columns=[desc[0] for desc in cursor.description])
-    current_date = datetime.datetime.now().strftime("%d.%m.%y.%H.%M.%S")
+    current_date = datetime.now().strftime("%d.%m.%y.%H.%M.%S")
     # Сохраняем DataFrame в файл Excel
     excel_file = f'output{current_date}.xlsx'
     df.to_excel(excel_file, index=False)
@@ -431,7 +452,7 @@ def поиск_по_маске_в_бд(search_word):
         results = cursor.fetchall()  # Получаем все результаты
 
         df = pd.DataFrame(results, columns=[desc[0] for desc in cursor.description])
-        current_date = datetime.datetime.now().strftime("%d.%m.%y.%H.%M.%S")
+        current_date = datetime.now().strftime("%d.%m.%y.%H.%M.%S")
         # Сохраняем DataFrame в файл Excel
         excel_file = f'output{current_date}.xlsx'
         df.to_excel(excel_file, index=False)
@@ -545,5 +566,4 @@ def hello():
 #         итератор_для_функции_получения_записей_с_торгов += 1
 #         # 'Дата_размещения_заявки_в_ЕФРСБ': Дата_размещения_заявки_в_ЕФРСБ,
 #     return список_ключ_значений_торгов
-
 
